@@ -98,6 +98,22 @@ export type DroppedContent = {
 	other: Map<string, number>;
 };
 
+/**
+ * A cache breakpoint an extension put on a user text block, kept as is. Claude Code sends a stored
+ * block's `cache_control` to the API unchanged, so an extension that rebuilds its context every turn
+ * (a summary view, say) can mark where the next turn's prefix stops matching. Claude Code places 3 of
+ * the API's 4 marks itself, all with a 1h TTL on a subscription, and a 5m mark may not come before a
+ * 1h one: so one mark at most, with `ttl: "1h"`.
+ */
+function cacheMark(block: object): { cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" } } {
+	const mark = (block as { cache_control?: unknown }).cache_control;
+	if (typeof mark !== "object" || mark === null) return {};
+	const { type, ttl } = mark as { type?: unknown; ttl?: unknown };
+	if (type !== "ephemeral") return {};
+	if (ttl === undefined) return { cache_control: { type } };
+	return ttl === "5m" || ttl === "1h" ? { cache_control: { type, ttl } } : {};
+}
+
 /** Convert pi message array to Anthropic API format. */
 export function convertPiMessages(
 	messages: PiMessage[],
@@ -122,7 +138,7 @@ export function convertPiMessages(
 			} else if (Array.isArray(msg.content)) {
 				const parts = [];
 				for (const block of msg.content) {
-					if (block.type === "text" && block.text) parts.push({ type: "text", text: block.text });
+					if (block.type === "text" && block.text) parts.push({ type: "text", text: block.text, ...cacheMark(block) });
 					else if (block.type === "image" && block.data && block.mimeType) {
 						parts.push({ type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } });
 					}
